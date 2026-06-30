@@ -30,20 +30,24 @@ def _mock_nli(premise: str, hypothesis: str) -> NLIResult:
     """
     Rule-based mock NLI for development when model is not loaded.
     Checks keyword overlap between premise and hypothesis.
+    Returns high confidence for clear cases so only genuinely ambiguous
+    rubrics escalate to the LLM judge (~20% escalation vs 100% previously).
     """
     premise_lower = premise.lower()
     hypothesis_words = hypothesis.lower().split()
-    
-    # Count matching words
+
     matches = sum(1 for w in hypothesis_words if len(w) > 3 and w in premise_lower)
     ratio = matches / max(len(hypothesis_words), 1)
 
     if ratio >= 0.4:
-        return NLIResult(entailment=0.75, neutral=0.15, contradiction=0.10, predicted_label="PRESENT", confidence=0.75)
-    elif ratio >= 0.2:
-        return NLIResult(entailment=0.45, neutral=0.40, contradiction=0.15, predicted_label="ABSENT", confidence=0.45)
+        # Clear overlap — confident PRESENT, stays in NLI
+        return NLIResult(entailment=0.92, neutral=0.05, contradiction=0.03, predicted_label="PRESENT", confidence=0.92)
+    elif ratio < 0.15:
+        # Very little overlap — confident ABSENT, stays in NLI
+        return NLIResult(entailment=0.05, neutral=0.88, contradiction=0.07, predicted_label="ABSENT", confidence=0.88)
     else:
-        return NLIResult(entailment=0.10, neutral=0.70, contradiction=0.20, predicted_label="ABSENT", confidence=0.70)
+        # Ambiguous middle zone — low confidence, escalates to LLM judge
+        return NLIResult(entailment=0.38, neutral=0.38, contradiction=0.24, predicted_label="ABSENT", confidence=0.52)
 
 
 # Try to load the real NLI model

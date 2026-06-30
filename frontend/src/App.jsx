@@ -278,7 +278,7 @@ const NAV_ITEMS = [
 
 function Sidebar({ view, setView }) {
   return (
-    <div style={{ width: 220, background: "white", borderRight: "1px solid var(--border-2)", display: "flex", flexDirection: "column", padding: "0 12px", flexShrink: 0 }}>
+    <div style={{ width: 220, background: "white", borderRight: "1px solid var(--border-2)", display: "flex", flexDirection: "column", padding: "0 12px", flexShrink: 0, position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
       <div style={{ padding: "20px 4px 16px" }}>
         <div style={{ fontWeight: 600, fontSize: 16, letterSpacing: "-0.02em" }}>EBAE</div>
         <div style={{ fontSize: 10, color: "var(--text-3)", fontFamily: "var(--mono)", marginTop: 2, letterSpacing: "0.08em" }}>ASSESSMENT ENGINE</div>
@@ -309,6 +309,9 @@ function QuestionsView({ toast }) {
   const [masterAnswer, setMasterAnswer] = useState(null);
   const [form, setForm] = useState({ subject: "", difficulty: "A_LEVEL", text: "", max_mark: 6 });
   const [maForm, setMaForm] = useState({ content: "" });
+  const [search, setSearch] = useState("");
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [editingMa, setEditingMa] = useState(false);
 
   useEffect(() => { loadQuestions(); }, []);
 
@@ -320,8 +323,12 @@ function QuestionsView({ toast }) {
 
   async function selectQuestion(q) {
     setSelected(q);
+    setShowForm(false);
     setRubricVersion(null);
     setMasterAnswer(null);
+    setMaForm({ content: "" });
+    setEditingMa(false);
+    setDetailLoading(true);
     try {
       const rv = await api(`/rubrics/question/${q.id}/active`);
       setRubricVersion(rv);
@@ -330,15 +337,17 @@ function QuestionsView({ toast }) {
       const ma = await api(`/questions/${q.id}/master-answer`);
       setMasterAnswer(ma);
     } catch {}
+    setDetailLoading(false);
   }
 
   async function createQuestion() {
     try {
-      await api("/questions/", { method: "POST", body: JSON.stringify({ ...form, created_by: "teacher_01" }) });
+      const q = await api("/questions/", { method: "POST", body: JSON.stringify({ ...form, created_by: "teacher_01" }) });
       toast("Question created");
       setShowForm(false);
       setForm({ subject: "", difficulty: "A_LEVEL", text: "", max_mark: 6 });
-      loadQuestions();
+      await loadQuestions();
+      selectQuestion(q);
     } catch (e) { toast("Error: " + e.message); }
   }
 
@@ -381,37 +390,32 @@ function QuestionsView({ toast }) {
     } catch (e) { toast("Error: " + e.message); }
   }
 
+  const filteredQuestions = questions.filter(q =>
+    !search ||
+    q.subject.toLowerCase().includes(search.toLowerCase()) ||
+    q.text.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 20, height: "100%" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", gap: 20 }}>
       {/* Question list */}
       <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
           <span style={{ fontSize: 11, fontWeight: 500, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Questions ({questions.length})</span>
-          <button className="btn-teal" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => setShowForm(s => !s)}>+ New</button>
+          <button className="btn-teal" style={{ padding: "5px 10px", fontSize: 11 }} onClick={() => { setShowForm(true); setSelected(null); setRubricVersion(null); setMasterAnswer(null); }}>+ New</button>
         </div>
 
-        {showForm && (
-          <div className="card" style={{ marginBottom: 12 }}>
-            <div style={{ fontWeight: 500, marginBottom: 12, fontSize: 13 }}>New question</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <input placeholder="Subject" value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
-              <input type="number" placeholder="Marks" value={form.max_mark} onChange={e => setForm(f => ({ ...f, max_mark: +e.target.value }))} style={{ width: 70 }} />
-            </div>
-            <select value={form.difficulty} onChange={e => setForm(f => ({ ...f, difficulty: e.target.value }))} style={{ marginBottom: 8 }}>
-              {["GCSE","AS_LEVEL","A_LEVEL","UNDERGRADUATE","OTHER"].map(d => <option key={d} value={d}>{d.replace("_"," ")}</option>)}
-            </select>
-            <textarea placeholder="Question text" value={form.text} onChange={e => setForm(f => ({ ...f, text: e.target.value }))} rows={3} style={{ marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className="btn-primary" style={{ fontSize: 12, padding: "6px 12px" }} onClick={createQuestion}>Create</button>
-              <button className="btn-secondary" style={{ fontSize: 12, padding: "6px 12px" }} onClick={() => setShowForm(false)}>Cancel</button>
-            </div>
-          </div>
-        )}
+        <input
+          placeholder="Search questions…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ marginBottom: 10, fontSize: 12, padding: "7px 10px" }}
+        />
 
         {loading && <div style={{ textAlign: "center", padding: 20 }}><Spinner /></div>}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {questions.map(q => (
+          {filteredQuestions.map(q => (
             <div key={q.id} onClick={() => selectQuestion(q)}
               style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", cursor: "pointer", border: "1px solid", borderColor: selected?.id === q.id ? "var(--teal)" : "var(--border-2)", background: selected?.id === q.id ? "var(--teal-dim)" : "white", transition: "all 0.12s" }}>
               <div style={{ display: "flex", gap: 6, marginBottom: 4, alignItems: "center" }}>
@@ -421,15 +425,53 @@ function QuestionsView({ toast }) {
               <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{q.text}</div>
             </div>
           ))}
-          {!loading && questions.length === 0 && (
-            <div className="empty-state"><div className="empty-state-icon">📋</div><div className="empty-state-text">No questions yet</div></div>
+          {!loading && filteredQuestions.length === 0 && (
+            <div className="empty-state">
+              <div className="empty-state-icon">📋</div>
+              <div className="empty-state-text">{search ? "No questions match your search" : "No questions yet"}</div>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Question detail */}
+      {/* Question detail / new question form */}
       <div>
-        {!selected ? (
+        {showForm ? (
+          <>
+            <div className="section-header">
+              <div>
+                <div className="page-title">New question</div>
+                <div className="page-subtitle">Fill in the details below, then add a master answer and generate rubrics</div>
+              </div>
+            </div>
+            <div className="card" style={{ maxWidth: 640 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 12, marginBottom: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Subject</label>
+                  <input placeholder="e.g. Media Studies" value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Max marks</label>
+                  <input type="number" placeholder="6" value={form.max_mark} onChange={e => setForm(f => ({ ...f, max_mark: +e.target.value }))} />
+                </div>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Difficulty</label>
+                <select value={form.difficulty} onChange={e => setForm(f => ({ ...f, difficulty: e.target.value }))}>
+                  {["GCSE","AS_LEVEL","A_LEVEL","UNDERGRADUATE","OTHER"].map(d => <option key={d} value={d}>{d.replace(/_/g," ")}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Question text</label>
+                <textarea placeholder="Write the full question here…" value={form.text} onChange={e => setForm(f => ({ ...f, text: e.target.value }))} rows={5} />
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn-primary" onClick={createQuestion}>Create question</button>
+                <button className="btn-secondary" onClick={() => { setShowForm(false); setForm({ subject: "", difficulty: "A_LEVEL", text: "", max_mark: 6 }); }}>Cancel</button>
+              </div>
+            </div>
+          </>
+        ) : !selected ? (
           <div className="empty-state" style={{ paddingTop: 100 }}>
             <div className="empty-state-icon">👈</div>
             <div className="empty-state-text">Select a question to manage its rubrics</div>
@@ -448,65 +490,84 @@ function QuestionsView({ toast }) {
               <p style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.6 }}>{selected.text}</p>
             </div>
 
-            {/* Master answer */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8 }}>Master answer</div>
-              {masterAnswer ? (
-                <div className="card" style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
-                  {masterAnswer.content}
-                  <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-3)", fontFamily: "var(--mono)" }}>version {masterAnswer.version} · {masterAnswer.is_active ? "active" : "inactive"}</div>
-                </div>
-              ) : (
-                <div className="card">
-                  <textarea placeholder="Write the model answer here..." value={maForm.content} onChange={e => setMaForm({ content: e.target.value })} rows={4} style={{ marginBottom: 10 }} />
-                  <button className="btn-primary" style={{ fontSize: 12 }} onClick={createMasterAnswer}>Save master answer</button>
-                </div>
-              )}
-            </div>
-
-            {/* Rubrics */}
-            <div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontWeight: 500, fontSize: 13 }}>
-                  Rubrics {rubricVersion ? `(${rubricVersion.rubrics.length})` : ""}
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {masterAnswer && (
-                    <button className="btn-secondary" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }} onClick={generateRubrics} disabled={genLoading}>
-                      {genLoading ? <><Spinner /> Generating…</> : "✨ Generate with AI"}
-                    </button>
-                  )}
-                  {rubricVersion?.status === "DRAFT" && (
-                    <button className="btn-teal" style={{ fontSize: 12 }} onClick={approveRubrics}>Approve all</button>
-                  )}
-                </div>
-              </div>
-
-              {rubricVersion ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {rubricVersion.rubrics.map((r, i) => (
-                    <div key={r.id} className="card" style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-3)" }}>R{i + 1}</span>
-                          <span style={{ fontWeight: 500, fontSize: 13 }}>{r.concept}</span>
+            {detailLoading ? (
+              <div style={{ textAlign: "center", padding: 40 }}><Spinner /></div>
+            ) : (
+              <>
+                {/* Master answer */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 8 }}>Master answer</div>
+                  {masterAnswer ? (
+                    editingMa ? (
+                      <div className="card">
+                        <textarea placeholder="Write the model answer here..." value={maForm.content} onChange={e => setMaForm({ content: e.target.value })} rows={4} style={{ marginBottom: 10 }} />
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="btn-primary" style={{ fontSize: 12 }} onClick={async () => { await createMasterAnswer(); setEditingMa(false); }}>Save</button>
+                          <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => { setEditingMa(false); setMaForm({ content: masterAnswer.content }); }}>Cancel</button>
                         </div>
-                        <p style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5 }}>{r.description}</p>
                       </div>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-                        <span style={{ fontFamily: "var(--mono)", fontSize: 11, background: "var(--green-dim)", color: "#0D7A5F", padding: "2px 7px", borderRadius: 3 }}>{r.weight}pt</span>
-                        <span className={`label-badge label-${r.status === "APPROVED" ? "PRESENT" : "PARTIAL"}`}>{r.status}</span>
+                    ) : (
+                      <div className="card" style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.7 }}>
+                        {masterAnswer.content}
+                        <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "var(--mono)" }}>version {masterAnswer.version} · {masterAnswer.is_active ? "active" : "inactive"}</div>
+                          <button className="btn-secondary" style={{ fontSize: 11, padding: "4px 10px" }} onClick={() => { setMaForm({ content: masterAnswer.content }); setEditingMa(true); }}>Edit</button>
+                        </div>
                       </div>
+                    )
+                  ) : (
+                    <div className="card">
+                      <textarea placeholder="Write the model answer here..." value={maForm.content} onChange={e => setMaForm({ content: e.target.value })} rows={4} style={{ marginBottom: 10 }} />
+                      <button className="btn-primary" style={{ fontSize: 12 }} onClick={createMasterAnswer}>Save master answer</button>
                     </div>
-                  ))}
+                  )}
                 </div>
-              ) : (
-                <div className="empty-state" style={{ padding: "40px 0" }}>
-                  <div className="empty-state-icon">🎯</div>
-                  <div className="empty-state-text">{masterAnswer ? "Click Generate to create rubrics with AI" : "Add a master answer first"}</div>
+
+                {/* Rubrics */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>
+                      Rubrics {rubricVersion ? `(${rubricVersion.rubrics.length})` : ""}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {masterAnswer && (
+                        <button className="btn-secondary" style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }} onClick={generateRubrics} disabled={genLoading}>
+                          {genLoading ? <><Spinner /> Generating…</> : "✨ Generate with AI"}
+                        </button>
+                      )}
+                      {rubricVersion?.status === "DRAFT" && (
+                        <button className="btn-teal" style={{ fontSize: 12 }} onClick={approveRubrics}>Approve all</button>
+                      )}
+                    </div>
+                  </div>
+
+                  {rubricVersion ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {rubricVersion.rubrics.map((r, i) => (
+                        <div key={r.id} className="card" style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-3)" }}>R{i + 1}</span>
+                              <span style={{ fontWeight: 500, fontSize: 13 }}>{r.concept}</span>
+                            </div>
+                            <p style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5 }}>{r.description}</p>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                            <span style={{ fontFamily: "var(--mono)", fontSize: 11, background: "var(--green-dim)", color: "#0D7A5F", padding: "2px 7px", borderRadius: 3 }}>{r.weight}pt</span>
+                            <span className={`label-badge label-${r.status === "APPROVED" ? "PRESENT" : "PARTIAL"}`}>{r.status}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-state" style={{ padding: "40px 0" }}>
+                      <div className="empty-state-icon">🎯</div>
+                      <div className="empty-state-text">{masterAnswer ? "Click Generate to create rubrics with AI" : "Add a master answer first"}</div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -518,9 +579,11 @@ function QuestionsView({ toast }) {
 function SubmitView({ toast }) {
   const [questions, setQuestions] = useState([]);
   const [selectedQ, setSelectedQ] = useState("");
+  const [tab, setTab] = useState("single");
   const [form, setForm] = useState({ student_name: "", student_id: "", answer: "" });
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [barPct, setBarPct] = useState(0);
 
   useEffect(() => {
     api("/questions/").then(qs => {
@@ -528,6 +591,13 @@ function SubmitView({ toast }) {
       if (qs.length > 0) setSelectedQ(qs[0].id);
     }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!result) { setBarPct(0); return; }
+    setBarPct(0);
+    const id = requestAnimationFrame(() => setBarPct(result.percentage));
+    return () => cancelAnimationFrame(id);
+  }, [result]);
 
   async function submit() {
     if (!selectedQ || !form.answer.trim() || !form.student_name.trim()) return;
@@ -545,122 +615,139 @@ function SubmitView({ toast }) {
   }
 
   const q = questions.find(q => q.id === selectedQ);
-  const pct = result ? result.percentage : 0;
+  const pct = result?.percentage || 0;
   const scoreColor = pct >= 75 ? "#0D7A5F" : pct >= 50 ? "#92580A" : "#B91C2C";
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 380px", gap: 24 }}>
-      <div>
-        <div className="section-header">
-          <div>
-            <div className="page-title">Student portal</div>
-            <div className="page-subtitle">Submit an answer for AI-assisted marking</div>
-          </div>
+    <div>
+      <div className="section-header">
+        <div>
+          <div className="page-title">Student portal</div>
+          <div className="page-subtitle">Submit an answer for AI-assisted marking</div>
         </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Question</label>
-          <select value={selectedQ} onChange={e => { setSelectedQ(e.target.value); setResult(null); }}>
-            {questions.map(q => <option key={q.id} value={q.id}>{q.subject} — {q.text.slice(0, 60)}…</option>)}
-          </select>
-        </div>
-
-        {q && (
-          <div className="card" style={{ marginBottom: 16, background: "var(--navy)", color: "white" }}>
-            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 10, background: "rgba(255,255,255,0.1)", padding: "2px 8px", borderRadius: 3, fontFamily: "var(--mono)" }}>{q.subject}</span>
-              <span style={{ fontSize: 10, background: "rgba(0,194,168,0.2)", color: "var(--teal)", padding: "2px 8px", borderRadius: 3, fontFamily: "var(--mono)" }}>{q.max_mark} marks</span>
-            </div>
-            <p style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.6 }}>{q.text}</p>
-          </div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-          <div>
-            <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Student name</label>
-            <input placeholder="Full name" value={form.student_name} onChange={e => setForm(f => ({ ...f, student_name: e.target.value }))} />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Student ID (optional)</label>
-            <input placeholder="e.g. STU001" value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} />
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Answer</label>
-          <textarea placeholder="Write your answer here…" value={form.answer} onChange={e => setForm(f => ({ ...f, answer: e.target.value }))} rows={8} />
-        </div>
-
-        <button className="btn-teal" onClick={submit} disabled={loading || !form.answer.trim() || !form.student_name.trim()}>
-          {loading ? <><Spinner /> Evaluating…</> : "Submit for marking →"}
-        </button>
-
-        {/* Results */}
-        {result && (
-          <div style={{ marginTop: 28 }}>
-            {/* Score hero */}
-            <div className="card" style={{ marginBottom: 16, background: "var(--navy)", color: "white", padding: "24px 28px" }}>
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 20, marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontFamily: "var(--mono)", fontSize: 48, fontWeight: 500, lineHeight: 1, color: "var(--teal)" }}>
-                    {result.score}
-                    <span style={{ fontSize: 20, color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>/{result.max_score}</span>
-                  </div>
-                  <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>{result.percentage}%</div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ height: 8, background: "rgba(255,255,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{ width: `${pct}%`, height: "100%", background: "var(--teal)", borderRadius: 4, transition: "width 0.8s ease" }} />
-                  </div>
-                </div>
-              </div>
-              <div style={{ fontSize: 13, lineHeight: 1.7, color: "rgba(255,255,255,0.8)" }}>{result.feedback}</div>
-            </div>
-
-            {/* Rubric breakdown */}
-            <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10 }}>Rubric breakdown</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {result.evaluations.map((e, i) => (
-                <div key={i} className="card" style={{ padding: "12px 16px" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: e.reasoning ? 8 : 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <LabelBadge label={e.final_label} />
-                      <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)" }}>{e.score_awarded}pt</span>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-3)" }}>via {e.method}</span>
-                    </div>
-                    {e.flagged && <span style={{ fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)" }}>⚑ flagged</span>}
-                  </div>
-                  {e.reasoning && <p style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5 }}>{e.reasoning}</p>}
-                  {e.confidence && <div style={{ marginTop: 6 }}><ConfBar value={e.confidence} color={e.final_label === "PRESENT" ? "var(--teal)" : e.final_label === "PARTIAL" ? "var(--amber)" : "var(--red)"} /></div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Side panel */}
-      <div>
-        <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 12, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 11 }}>How it works</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {[
-            ["07", "Preprocessing", "Answer cleaned and normalised"],
-            ["08-09", "Evidence retrieval", "Relevant passages extracted per rubric"],
-            ["10", "NLI classification", "Fast first-pass confidence scoring"],
-            ["11", "LLM judge", "Claude evaluates when confidence < 85%"],
-            ["14", "Mark allocation", "Weighted score calculated"],
-            ["15", "Feedback", "Claude writes personalised feedback"],
-          ].map(([step, title, desc]) => (
-            <div key={step} style={{ display: "flex", gap: 10, padding: "10px 12px", background: "white", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-2)" }}>
-              <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--teal)", fontWeight: 500, minWidth: 28 }}>{step}</span>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 500 }}>{title}</div>
-                <div style={{ fontSize: 11, color: "var(--text-3)" }}>{desc}</div>
-              </div>
-            </div>
+        <div style={{ display: "flex", background: "var(--paper-2)", borderRadius: "var(--radius-sm)", padding: 3, gap: 2 }}>
+          {[["single", "Single answer"], ["bulk", "Bulk upload"]].map(([id, label]) => (
+            <button key={id} onClick={() => { setTab(id); setResult(null); }}
+              style={{ padding: "6px 14px", fontSize: 12, fontWeight: tab === id ? 500 : 400,
+                background: tab === id ? "white" : "transparent",
+                color: tab === id ? "var(--text)" : "var(--text-3)",
+                border: "none", borderRadius: "var(--radius-sm)",
+                boxShadow: tab === id ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+                transition: "all 0.15s" }}>
+              {label}
+            </button>
           ))}
         </div>
       </div>
+
+      {tab === "bulk" ? (
+        <BulkUpload questions={questions} toast={toast} />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: result ? "1fr" : "1fr 380px", gap: 24 }}>
+          <div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Question</label>
+              <select value={selectedQ} onChange={e => { setSelectedQ(e.target.value); setResult(null); }}>
+                {questions.map(q => <option key={q.id} value={q.id}>{q.subject} — {q.text.slice(0, 60)}…</option>)}
+              </select>
+            </div>
+
+            {q && (
+              <div className="card" style={{ marginBottom: 16, background: "var(--navy)", color: "white" }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 10, background: "rgba(255,255,255,0.1)", padding: "2px 8px", borderRadius: 3, fontFamily: "var(--mono)" }}>{q.subject}</span>
+                  <span style={{ fontSize: 10, background: "rgba(0,194,168,0.2)", color: "var(--teal)", padding: "2px 8px", borderRadius: 3, fontFamily: "var(--mono)" }}>{q.max_mark} marks</span>
+                </div>
+                <p style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.6 }}>{q.text}</p>
+              </div>
+            )}
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Student name</label>
+                <input placeholder="Full name" value={form.student_name} onChange={e => setForm(f => ({ ...f, student_name: e.target.value }))} />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Student ID (optional)</label>
+                <input placeholder="e.g. STU001" value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Answer</label>
+              <textarea placeholder="Write your answer here…" value={form.answer} onChange={e => setForm(f => ({ ...f, answer: e.target.value }))} rows={8} />
+            </div>
+
+            <button className="btn-teal" onClick={submit} disabled={loading || !form.answer.trim() || !form.student_name.trim()}>
+              {loading ? <><Spinner /> Evaluating…</> : "Submit for marking →"}
+            </button>
+
+            {result && (
+              <div style={{ marginTop: 28 }}>
+                <div className="card" style={{ marginBottom: 16, background: "var(--navy)", color: "white", padding: "24px 28px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-end", gap: 20, marginBottom: 16 }}>
+                    <div>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: 48, fontWeight: 500, lineHeight: 1, color: "var(--teal)" }}>
+                        {result.score}
+                        <span style={{ fontSize: 20, color: "rgba(255,255,255,0.4)", fontWeight: 400 }}>/{result.max_score}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", marginTop: 4 }}>{result.percentage}%</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ height: 8, background: "rgba(255,255,255,0.1)", borderRadius: 4, overflow: "hidden" }}>
+                        <div style={{ width: `${barPct}%`, height: "100%", background: "var(--teal)", borderRadius: 4, transition: "width 0.8s ease" }} />
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 13, lineHeight: 1.7, color: "rgba(255,255,255,0.8)" }}>{result.feedback}</div>
+                </div>
+
+                <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10 }}>Rubric breakdown</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {result.evaluations.map((e, i) => (
+                    <div key={i} className="card" style={{ padding: "12px 16px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: e.reasoning ? 8 : 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <LabelBadge label={e.final_label} />
+                          <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)" }}>{e.score_awarded}pt</span>
+                          <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--text-3)" }}>via {e.method}</span>
+                        </div>
+                        {e.flagged && <span style={{ fontSize: 10, color: "var(--amber)", fontFamily: "var(--mono)" }}>⚑ flagged</span>}
+                      </div>
+                      {e.reasoning && <p style={{ fontSize: 12, color: "var(--text-2)", lineHeight: 1.5 }}>{e.reasoning}</p>}
+                      {e.confidence && <div style={{ marginTop: 6 }}><ConfBar value={e.confidence} color={e.final_label === "PRESENT" ? "var(--teal)" : e.final_label === "PARTIAL" ? "var(--amber)" : "var(--red)"} /></div>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {!result && (
+            <div>
+              <div style={{ fontWeight: 500, fontSize: 11, marginBottom: 12, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.08em" }}>How it works</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  ["07", "Preprocessing", "Answer cleaned and normalised"],
+                  ["08-09", "Evidence retrieval", "Relevant passages extracted per rubric"],
+                  ["10", "NLI classification", "Fast first-pass confidence scoring"],
+                  ["11", "LLM judge", "Claude evaluates when confidence < 85%"],
+                  ["14", "Mark allocation", "Weighted score calculated"],
+                  ["15", "Feedback", "Claude writes personalised feedback"],
+                ].map(([step, title, desc]) => (
+                  <div key={step} style={{ display: "flex", gap: 10, padding: "10px 12px", background: "white", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-2)" }}>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--teal)", fontWeight: 500, minWidth: 28 }}>{step}</span>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 500 }}>{title}</div>
+                      <div style={{ fontSize: 11, color: "var(--text-3)" }}>{desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -725,8 +812,11 @@ function ReviewView({ toast }) {
                   <StatusBadge status={item.status} />
                   <span style={{ fontFamily: "var(--mono)", fontSize: 10, color: "var(--amber)", background: "var(--amber-dim)", padding: "2px 7px", borderRadius: 3 }}>{item.reason.replace(/_/g," ")}</span>
                 </div>
+                <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 2 }}>
+                  {item.student_name || "Unknown student"}
+                </div>
                 <div style={{ fontSize: 11, fontFamily: "var(--mono)", color: "var(--text-3)" }}>
-                  submission: {item.submission_id.slice(0,8)}… · eval: {item.evaluation_id.slice(0,8)}…
+                  rubric: {item.rubric_concept || item.evaluation_id.slice(0, 8) + "…"}
                 </div>
                 {item.status === "RESOLVED" && (
                   <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-2)" }}>
@@ -875,6 +965,154 @@ function AnalyticsView() {
   );
 }
 
+
+// ── BULK UPLOAD COMPONENT ──
+function BulkUpload({ questions, toast }) {
+  const [selectedQ, setSelectedQ] = useState("");
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  useEffect(() => {
+    if (questions.length > 0 && !selectedQ) setSelectedQ(questions[0].id);
+  }, [questions]);
+
+  function handleFile(f) {
+    if (!f) return;
+    if (!f.name.endsWith(".csv")) { toast("Please upload a .csv file"); return; }
+    setFile(f);
+    setResults(null);
+  }
+
+  async function handleUpload() {
+    if (!file || !selectedQ) return;
+    setLoading(true);
+    setResults(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${API}/questions/${selectedQ}/bulk-submit`, {
+        method: "POST",
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || "Upload failed");
+      }
+      const data = await res.json();
+      setResults(data);
+      toast(`Processed ${data.processed} of ${data.total_rows} submissions`);
+    } catch (e) {
+      toast("Error: " + e.message);
+    }
+    setLoading(false);
+  }
+
+  function downloadTemplate() {
+    const csv = `student_name,student_id,answer\nRahul Sharma,STU001,"Write the full student answer here — wrap in quotes if it contains commas"\nPriya Nair,STU002,Shorter answers without commas do not need quotes\nArjun Mehta,,Student ID column is optional — leave blank if not needed`;
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "EBAE_Student_Answers_Template.csv";
+    a.click(); URL.revokeObjectURL(url);
+  }
+
+  const scoreColor = (pct) => pct >= 75 ? "var(--teal)" : pct >= 50 ? "var(--amber)" : "var(--red)";
+  const avgPct = results?.results?.length > 0
+    ? (results.results.reduce((s, r) => s + (r.percentage || 0), 0) / results.results.length).toFixed(1)
+    : null;
+
+  return (
+    <div style={{ marginTop: 32, paddingTop: 28, borderTop: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 15 }}>Bulk answer upload</div>
+          <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2 }}>Upload a CSV with multiple student answers — all evaluated automatically</div>
+        </div>
+        <button onClick={downloadTemplate} style={{ background: "none", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "6px 12px", fontSize: 12, color: "var(--teal)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          ⬇ Download template
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <label style={{ fontSize: 12, color: "var(--text-2)", display: "block", marginBottom: 6 }}>Question</label>
+        <select value={selectedQ} onChange={e => { setSelectedQ(e.target.value); setResults(null); setFile(null); }}>
+          {questions.map(q => <option key={q.id} value={q.id}>{q.subject} — {q.text.slice(0, 60)}…</option>)}
+        </select>
+      </div>
+
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={e => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); }}
+        onClick={() => document.getElementById("csv-input").click()}
+        style={{ border: `2px dashed ${dragOver || file ? "var(--teal)" : "var(--border)"}`, borderRadius: "var(--radius)", padding: "32px 20px", textAlign: "center", cursor: "pointer", background: dragOver || file ? "var(--teal-dim)" : "white", transition: "all 0.15s", marginBottom: 14 }}
+      >
+        <input id="csv-input" type="file" accept=".csv" style={{ display: "none" }} onChange={e => handleFile(e.target.files[0])} />
+        {file ? (
+          <div>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>📄</div>
+            <div style={{ fontWeight: 500, fontSize: 14 }}>{file.name}</div>
+            <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 4 }}>{(file.size / 1024).toFixed(1)} KB · Click to change</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>📂</div>
+            <div style={{ fontWeight: 500, fontSize: 14, color: "var(--text-2)" }}>Drop your CSV here or click to browse</div>
+            <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 6 }}>Required columns: student_name, answer · student_id optional · Max 50 rows</div>
+          </div>
+        )}
+      </div>
+
+      <button className="btn-teal" onClick={handleUpload} disabled={!file || !selectedQ || loading} style={{ width: "100%" }}>
+        {loading ? <><Spinner /> Evaluating all answers…</> : "Upload & evaluate →"}
+      </button>
+
+      {results && (
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 16 }}>
+            {[["Total rows", results.total_rows, "var(--text)"], ["Processed", results.processed, "var(--teal)"], ["Failed", results.failed, results.failed > 0 ? "var(--red)" : "var(--text-3)"], ["Avg score", avgPct ? avgPct + "%" : "—", "var(--amber)"]].map(([label, value, color]) => (
+              <div key={label} style={{ background: "white", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px 14px" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 20, fontWeight: 500, color }}>{value}</div>
+                <div style={{ fontSize: 11, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 2 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 10 }}>Results</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {results.results.map((r, i) => (
+              <div key={i} style={{ background: "white", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "12px 16px", display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)", minWidth: 28 }}>#{r.row}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500, fontSize: 13 }}>{r.student_name}</div>
+                  {r.student_id && <div style={{ fontSize: 11, color: "var(--text-3)", fontFamily: "var(--mono)" }}>{r.student_id}</div>}
+                </div>
+                <div style={{ textAlign: "right", minWidth: 70 }}>
+                  <div style={{ fontFamily: "var(--mono)", fontSize: 18, fontWeight: 500, color: scoreColor(r.percentage) }}>{r.score}<span style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 400 }}>/{r.max_score}</span></div>
+                  <div style={{ fontSize: 11, color: "var(--text-3)" }}>{r.percentage}%</div>
+                </div>
+                <div style={{ width: 70 }}>
+                  <div style={{ height: 5, background: "var(--paper-2)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ width: `${r.percentage}%`, height: "100%", background: scoreColor(r.percentage), borderRadius: 3, transition: "width 0.6s" }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+            {results.errors.map((e, i) => (
+              <div key={`e${i}`} style={{ background: "white", border: "1px solid rgba(232,72,85,0.2)", borderRadius: "var(--radius-sm)", padding: "12px 16px", display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text-3)", minWidth: 28 }}>#{e.row}</div>
+                <div style={{ flex: 1 }}><div style={{ fontWeight: 500, fontSize: 13 }}>{e.student_name || "Row " + e.row}</div><div style={{ fontSize: 12, color: "var(--red)" }}>{e.error}</div></div>
+                <span style={{ fontSize: 10, background: "var(--red-dim)", color: "var(--red)", padding: "2px 7px", borderRadius: 3, fontFamily: "var(--mono)" }}>FAILED</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── APP ──
 export default function App() {
   const [view, setView] = useState(VIEWS.SUBMIT);
@@ -892,9 +1130,9 @@ export default function App() {
   return (
     <>
       <style>{css}</style>
-      <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <div style={{ display: "flex", minHeight: "100vh" }}>
         <Sidebar view={view} setView={setView} />
-        <main style={{ flex: 1, overflow: "auto", padding: "24px 28px" }}>
+        <main style={{ flex: 1, minWidth: 0, padding: "24px 28px" }}>
           {views[view]}
         </main>
       </div>

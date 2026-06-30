@@ -4,6 +4,7 @@ Step 11 — LLM Judge Service
 Called when NLI confidence < threshold or for high-stakes evaluations.
 Uses Claude to provide nuanced judgment with reasoning.
 """
+import asyncio
 import json
 import logging
 import anthropic
@@ -72,20 +73,35 @@ async def judge(
         nli_contradiction=nli_contradiction,
     )
 
-    try:
-        message = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=300,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = message.content[0].text.strip()
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        data = json.loads(raw)
-        return LLMJudgeResult(
-            label=data.get("label", "ABSENT"),
-            reasoning=data.get("reasoning", ""),
-            confidence=float(data.get("confidence", 0.5)),
-        )
-    except Exception as e:
-        logger.error(f"LLM judge error: {e}")
-        return LLMJudgeResult(label="ABSENT", reasoning=f"Judge error: {e}", confidence=0.0)
+    retryable = (anthropic.APITimeoutError, anthropic.APIConnectionError, anthropic.RateLimitError)
+    backoff = [1, 2, 4]
+    last_error: Exception | None = None
+
+    for attempt, delay in enumerate(backoff, 1):
+        try:
+            message = client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=300,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = message.content[0].text.strip()
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            data = json.loads(raw)
+            return LLMJudgeResult(
+                label=data.get("label", "ABSENT"),
+                reasoning=data.get("reasoning", ""),
+                confidence=float(data.get("confidence", 0.5)),
+            )
+        except retryable as e:
+            last_error = e
+            logger.warning(f"LLM judge attempt {attempt}/{len(backoff)} failed ({type(e).__name__}): {e}")
+            if attempt < len(backoff):
+                await asyncio.sleep(delay)
+        except Exception as e:
+            logger.error(f"LLM judge non-retryable error: {e}")
+            return LLMJudgeResult(label="PARTIAL", reasoning=f"Judge unavailable: {e}", confidence=0.0)
+
+    # All retries exhausted — return PARTIAL so the score isn't silently zeroed
+    # and confidence=0.0 ensures this gets flagged for human review
+    logger.error(f"LLM judge failed after {len(backoff)} attempts: {last_error}")
+    return LLMJudgeResult(label="PARTIAL", reasoning="LLM judge unavailable after retries — flagged for human review", confidence=0.0)

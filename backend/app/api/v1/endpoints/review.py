@@ -11,8 +11,8 @@ router = APIRouter()
 
 @router.get("/", response_model=list[ReviewItemRead])
 async def list_review_queue(db: AsyncSession = Depends(get_db)):
-    """Step 13 — Get all pending items in the human review queue."""
-    return await ReviewService.list_pending(db)
+    """Step 13 — Get all items in the human review queue."""
+    return await ReviewService.list_items(db)
 
 
 @router.post("/{item_id}/resolve", response_model=ReviewItemRead)

@@ -22,5 +22,7 @@ class ReviewItemRead(BaseModel):
     reviewer_note: str | None
     created_at: datetime
     resolved_at: datetime | None
+    rubric_concept: str | None = None
+    student_name: str | None = None
 
     model_config = {"from_attributes": True}
